@@ -57,13 +57,30 @@ When route requires fresh web data (`research` and `web`), request includes:
 
 For `audio` route the bot uses a resilient pipeline:
 
+0. Validate configured audio limits (duration + file size).
 1. Detect source format (file extension + mime type).
 2. Normalize audio with `ffmpeg` to `wav` (`mono`, `16k`).
 3. Send normalized audio to STT model.
 4. If STT fails and source format is supported, retry once with source audio.
 5. If `ffmpeg` is missing, use source format directly when supported.
 
-## 6) Routing badge UX
+Audio limits are configured with:
+
+- `AUDIO_MAX_DURATION_SECONDS` (default 300)
+- `AUDIO_MAX_FILE_SIZE_MB` (default 20)
+
+## 6) OpenRouter retry/backoff policy
+
+The OpenRouter client uses retry with exponential backoff for transient failures.
+
+- Retryable statuses: `408, 409, 425, 429, 500, 502, 503, 504`
+- Retryable exceptions: timeout/network transport errors
+- Config:
+  - `REQUEST_MAX_RETRIES` (default 2)
+  - `REQUEST_RETRY_BACKOFF_BASE_SECONDS` (default 1)
+  - `REQUEST_RETRY_BACKOFF_MAX_SECONDS` (default 8)
+
+## 7) Routing badge UX
 
 Badge is shown only in the first assistant reply of a new session.
 
@@ -80,7 +97,7 @@ Examples:
 
 The bot stores `badge_sent` per session.
 
-## 7) Session list and storage rules
+## 8) Session list and storage rules
 
 - Recent list is exactly last 10 sessions (`RECENT_SESSIONS_LIMIT=10`).
 - Saved sessions list is limited (`SAVED_SESSIONS_LIMIT`, default 50).

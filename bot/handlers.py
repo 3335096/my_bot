@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 def build_router(db: Database, llm: OpenRouterClient) -> Router:
     router = Router()
+    max_audio_bytes = settings.audio_max_file_size_mb * 1024 * 1024
 
     async def ensure_user(message: Message) -> int:
         if message.from_user is None:
@@ -248,11 +249,41 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             await message.answer("Не удалось прочитать аудио.", reply_markup=MAIN_REPLY_KEYBOARD)
             return
 
+        duration = getattr(audio, "duration", None)
+        if (
+            isinstance(duration, int)
+            and duration > 0
+            and duration > settings.audio_max_duration_seconds
+        ):
+            await message.answer(
+                "Аудио слишком длинное для обработки.\n"
+                f"Лимит: {settings.audio_max_duration_seconds} сек.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
+            )
+            return
+
+        file_size = getattr(audio, "file_size", None)
+        if isinstance(file_size, int) and file_size > max_audio_bytes:
+            await message.answer(
+                "Аудио слишком большое для обработки.\n"
+                f"Лимит: {settings.audio_max_file_size_mb} MB.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
+            )
+            return
+
         file = await bot.get_file(audio.file_id)
         buffer = BytesIO()
         await bot.download_file(file.file_path, buffer)
         audio_bytes = buffer.getvalue()
         mime_type = getattr(audio, "mime_type", None)
+
+        if len(audio_bytes) > max_audio_bytes:
+            await message.answer(
+                "Файл аудио после загрузки превышает лимит.\n"
+                f"Лимит: {settings.audio_max_file_size_mb} MB.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
+            )
+            return
 
         try:
             audio_plan = await build_audio_plan(

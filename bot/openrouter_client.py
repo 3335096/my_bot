@@ -1,10 +1,16 @@
+import asyncio
 import base64
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import httpx
 
 from bot.config import settings
+
+logger = logging.getLogger(__name__)
+
+RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 
 
 @dataclass(slots=True)
@@ -19,6 +25,9 @@ class OpenRouterClient:
     def __init__(self) -> None:
         self.base_url = settings.openrouter_base_url.rstrip("/")
         self.timeout = settings.request_timeout_seconds
+        self.max_retries = settings.request_max_retries
+        self.retry_backoff_base_seconds = settings.request_retry_backoff_base_seconds
+        self.retry_backoff_max_seconds = settings.request_retry_backoff_max_seconds
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -31,15 +40,65 @@ class OpenRouterClient:
             headers["HTTP-Referer"] = settings.app_url
         return headers
 
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        # Exponential backoff: base * 2^attempt, clamped by max value.
+        return min(
+            self.retry_backoff_base_seconds * (2**attempt),
+            self.retry_backoff_max_seconds,
+        )
+
+    def _should_retry_status(self, status_code: int) -> bool:
+        return status_code in RETRYABLE_STATUS_CODES
+
     async def _post_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=payload,
-            )
-            response.raise_for_status()
-            return response.json()
+        for attempt in range(self.max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=self._headers(),
+                        json=payload,
+                    )
+
+                if (
+                    self._should_retry_status(response.status_code)
+                    and attempt < self.max_retries
+                ):
+                    delay = self._retry_delay_seconds(attempt)
+                    logger.warning(
+                        "OpenRouter temporary status=%s, retrying in %.2fs (attempt %s/%s)",
+                        response.status_code,
+                        delay,
+                        attempt + 1,
+                        self.max_retries + 1,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+
+            except (
+                httpx.TimeoutException,
+                httpx.NetworkError,
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.WriteError,
+            ) as exc:
+                if attempt >= self.max_retries:
+                    raise
+
+                delay = self._retry_delay_seconds(attempt)
+                logger.warning(
+                    "OpenRouter request failed (%s), retrying in %.2fs (attempt %s/%s)",
+                    type(exc).__name__,
+                    delay,
+                    attempt + 1,
+                    self.max_retries + 1,
+                )
+                await asyncio.sleep(delay)
+
+        raise RuntimeError("Unreachable retry loop state")
 
     @staticmethod
     def _extract_text(response_json: dict[str, Any]) -> str:

@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     saved_sessions_limit: int = Field(default=50, alias="SAVED_SESSIONS_LIMIT")
     max_context_messages: int = Field(default=16, alias="MAX_CONTEXT_MESSAGES")
     request_timeout_seconds: float = Field(default=60.0, alias="REQUEST_TIMEOUT_SECONDS")
+    request_max_retries: int = Field(default=2, alias="REQUEST_MAX_RETRIES")
+    request_retry_backoff_base_seconds: float = Field(
+        default=1.0,
+        alias="REQUEST_RETRY_BACKOFF_BASE_SECONDS",
+    )
+    request_retry_backoff_max_seconds: float = Field(
+        default=8.0,
+        alias="REQUEST_RETRY_BACKOFF_MAX_SECONDS",
+    )
+
+    audio_max_duration_seconds: int = Field(default=300, alias="AUDIO_MAX_DURATION_SECONDS")
+    audio_max_file_size_mb: int = Field(default=20, alias="AUDIO_MAX_FILE_SIZE_MB")
+
     openrouter_max_web_results: int = Field(default=5, alias="WEB_MAX_RESULTS")
 
     model_config = SettingsConfigDict(

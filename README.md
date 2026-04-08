@@ -64,6 +64,19 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 - Бот сначала пытается нормализовать входящее аудио через `ffmpeg` в `wav` (`mono`, `16k`).
 - Если первичная транскрибация не прошла и есть валидный исходный формат, бот делает fallback-повтор на исходном файле.
 - Если `ffmpeg` недоступен, используется best-effort режим: отправка исходного поддерживаемого формата.
+- До транскрибации применяются лимиты:
+  - `AUDIO_MAX_DURATION_SECONDS` (по умолчанию 300 сек),
+  - `AUDIO_MAX_FILE_SIZE_MB` (по умолчанию 20 MB).
+
+## Retry/backoff OpenRouter
+
+- Для chat/transcription запросов используется retry-политика на временные ошибки:
+  - timeout/network exceptions,
+  - HTTP `408/409/425/429/500/502/503/504`.
+- Параметры:
+  - `REQUEST_MAX_RETRIES` (по умолчанию 2),
+  - `REQUEST_RETRY_BACKOFF_BASE_SECONDS` (по умолчанию 1),
+  - `REQUEST_RETRY_BACKOFF_MAX_SECONDS` (по умолчанию 8).
 
 ## Документация
 
