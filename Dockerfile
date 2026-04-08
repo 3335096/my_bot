@@ -8,7 +8,10 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY bot ./bot
 
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 CMD ["python", "-m", "bot.main"]

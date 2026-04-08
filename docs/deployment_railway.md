@@ -28,6 +28,7 @@ The repository includes `Dockerfile` and `railway.json`.
 Railway will use:
 
 - start command: `python -m bot.main`
+- `ffmpeg` is installed in image for reliable audio normalization before STT
 
 ## 4) Validate deployment
 1. Open bot in Telegram and run `/start`.
@@ -35,3 +36,4 @@ Railway will use:
 3. Send second message in same session and verify no badge.
 4. Open `🕘 Последние 10`, save any dialog, then verify it appears in `⭐ Сохраненные`.
 5. Delete dialog from list and verify it is removed immediately.
+6. Send a voice message and ensure transcription works (normal path and fallback path in logs if needed).

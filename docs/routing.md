@@ -53,7 +53,17 @@ When route requires fresh web data (`research` and `web`), request includes:
 
 `max_results` is configured by `WEB_MAX_RESULTS`.
 
-## 5) Routing badge UX
+## 5) Audio normalization and STT fallback
+
+For `audio` route the bot uses a resilient pipeline:
+
+1. Detect source format (file extension + mime type).
+2. Normalize audio with `ffmpeg` to `wav` (`mono`, `16k`).
+3. Send normalized audio to STT model.
+4. If STT fails and source format is supported, retry once with source audio.
+5. If `ffmpeg` is missing, use source format directly when supported.
+
+## 6) Routing badge UX
 
 Badge is shown only in the first assistant reply of a new session.
 
@@ -70,7 +80,7 @@ Examples:
 
 The bot stores `badge_sent` per session.
 
-## 6) Session list and storage rules
+## 7) Session list and storage rules
 
 - Recent list is exactly last 10 sessions (`RECENT_SESSIONS_LIMIT=10`).
 - Saved sessions list is limited (`SAVED_SESSIONS_LIMIT`, default 50).

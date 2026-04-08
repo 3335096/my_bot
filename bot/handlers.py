@@ -10,6 +10,7 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
+from bot.audio_pipeline import build_audio_plan
 from bot.config import settings
 from bot.db import Database, SessionRecord
 from bot.keyboards import MAIN_REPLY_KEYBOARD, recent_dialog_actions, saved_dialog_actions
@@ -251,24 +252,57 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         buffer = BytesIO()
         await bot.download_file(file.file_path, buffer)
         audio_bytes = buffer.getvalue()
-
-        extension = "ogg"
-        if "." in file.file_path:
-            extension = file.file_path.rsplit(".", 1)[1].lower()
-        if extension in {"oga", "opus"}:
-            extension = "ogg"
-        if extension not in {"wav", "mp3", "aiff", "aac", "ogg"}:
-            extension = "ogg"
+        mime_type = getattr(audio, "mime_type", None)
 
         try:
-            transcript = await llm.transcribe_audio(audio_bytes, extension)
+            audio_plan = await build_audio_plan(
+                audio_bytes,
+                file_path=file.file_path,
+                mime_type=mime_type,
+            )
         except Exception:  # noqa: BLE001
-            logger.exception("Audio transcription failed")
+            logger.exception("Audio normalization failed")
             await message.answer(
-                "Не удалось транскрибировать голосовое сообщение.",
+                "Не удалось подготовить аудио для транскрибации. "
+                "Попробуйте отправить голосовое еще раз.",
                 reply_markup=MAIN_REPLY_KEYBOARD,
             )
             return
+
+        try:
+            transcript = await llm.transcribe_audio(
+                audio_plan.primary_bytes,
+                audio_plan.primary_format,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Audio transcription primary attempt failed (format=%s, note=%s)",
+                audio_plan.primary_format,
+                audio_plan.note,
+            )
+            if audio_plan.fallback_bytes and audio_plan.fallback_format:
+                try:
+                    transcript = await llm.transcribe_audio(
+                        audio_plan.fallback_bytes,
+                        audio_plan.fallback_format,
+                    )
+                    logger.warning(
+                        "Audio transcription succeeded with fallback (format=%s)",
+                        audio_plan.fallback_format,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Audio transcription fallback failed")
+                    await message.answer(
+                        "Не удалось транскрибировать голосовое сообщение.",
+                        reply_markup=MAIN_REPLY_KEYBOARD,
+                    )
+                    return
+            else:
+                await message.answer(
+                    "Не удалось транскрибировать голосовое сообщение.",
+                    reply_markup=MAIN_REPLY_KEYBOARD,
+                )
+                return
 
         transcription_prefix = f"📝 Транскрипция:\n{transcript}"
         try:
