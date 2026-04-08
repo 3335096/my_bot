@@ -192,6 +192,16 @@ class OpenRouterClient:
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
 
+    async def get_balance(self) -> dict[str, Any]:
+        """Fetch current API key usage and limits from OpenRouter."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{self.base_url}/auth/key",
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def transcribe_audio(self, audio_bytes: bytes, audio_format: str) -> str:
         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
         payload = {

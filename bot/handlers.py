@@ -233,6 +233,34 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         user_id = await ensure_user(message)
         await show_saved_dialogs(message, user_id)
 
+    @router.message(Command("balance"))
+    @router.message(F.text == "💳 Баланс")
+    async def balance_cmd(message: Message) -> None:
+        try:
+            data = await llm.get_balance()
+            info = data.get("data", {})
+            usage = info.get("usage", 0) or 0
+            limit = info.get("limit")
+            label = info.get("label") or "—"
+
+            if limit:
+                remaining = max(0.0, limit - usage)
+                balance_line = f"Остаток: ${remaining:.4f} из ${limit:.2f}"
+            else:
+                balance_line = "Лимит: не установлен"
+
+            text = (
+                f"💳 OpenRouter баланс\n\n"
+                f"Ключ: {label}\n"
+                f"Потрачено: ${usage:.4f}\n"
+                f"{balance_line}"
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to fetch OpenRouter balance")
+            text = "Не удалось получить баланс. Проверьте OPENROUTER_API_KEY."
+
+        await message.answer(text, reply_markup=MAIN_REPLY_KEYBOARD)
+
     # -------------------------------------------------------- callback handlers
 
     @router.callback_query(F.data.startswith("open:"))
