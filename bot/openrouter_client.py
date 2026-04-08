@@ -78,13 +78,7 @@ class OpenRouterClient:
                 response.raise_for_status()
                 return response.json()
 
-            except (
-                httpx.TimeoutException,
-                httpx.NetworkError,
-                httpx.RemoteProtocolError,
-                httpx.ReadError,
-                httpx.WriteError,
-            ) as exc:
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
                 if attempt >= self.max_retries:
                     raise
 
