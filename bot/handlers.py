@@ -96,53 +96,6 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         await db.trim_recent_sessions(user_id, settings.recent_sessions_limit)
         await db.trim_saved_sessions(user_id, settings.saved_sessions_limit)
 
-    async def stream_into_placeholder(
-        placeholder: Message,
-        *,
-        model: str,
-        route: str,
-        messages: list[dict[str, Any]],
-        enable_web_search: bool,
-        display_prefix: str,
-    ) -> str:
-        """
-        Stream LLM response into an existing placeholder message.
-        Returns the full accumulated LLM text (without display_prefix).
-        Raises on stream failure.
-        """
-        llm_text = ""
-        last_edit = 0.0
-
-        try:
-            async with asyncio.timeout(settings.request_timeout_seconds):
-                async for chunk in llm.stream_chat(
-                    model=model,
-                    route=route,
-                    messages=messages,
-                    enable_web_search=enable_web_search,
-                ):
-                    llm_text += chunk
-                    now = time.monotonic()
-                    if now - last_edit >= _EDIT_INTERVAL:
-                        try:
-                            await placeholder.edit_text(_truncate(display_prefix + llm_text))
-                            last_edit = now
-                        except Exception:  # noqa: BLE001
-                            pass
-        except TimeoutError:
-            logger.warning("LLM streaming timed out after %ss", settings.request_timeout_seconds)
-            if not llm_text:
-                raise RuntimeError("LLM response timed out")
-            # Partial response — show what arrived
-
-        # Final edit to ensure complete text is shown
-        try:
-            await placeholder.edit_text(_truncate(display_prefix + llm_text))
-        except Exception:  # noqa: BLE001
-            pass
-
-        return llm_text
-
     async def run_text_pipeline(
         *,
         message: Message,
@@ -152,6 +105,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         user_content_type: str = "text",
         transcription_prefix: str | None = None,
     ) -> None:
+        assert message.bot is not None
         decision = detect_intent(user_text, has_photo=False, has_audio=False)
         model = model_for_intent(decision.intent)
         context_messages = await build_text_context(session.id, build_system_prompt(decision.intent))
@@ -159,30 +113,39 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
         badge_line = render_badge(decision, model) if not session.badge_sent else ""
 
-        # Build what the user sees above the LLM answer
-        prefix_parts = [p for p in [badge_line, transcription_prefix] if p]
-        display_prefix = "\n\n".join(prefix_parts) + ("\n\n" if prefix_parts else "")
-
-        # Placeholder message — also attaches the reply keyboard
-        placeholder = await message.answer("…", reply_markup=MAIN_REPLY_KEYBOARD)
+        # Show typing while waiting for LLM
+        stop_typing = asyncio.Event()
+        typing_task = asyncio.create_task(
+            _keep_typing(message.bot, message.chat.id, stop_typing)
+        )
 
         try:
-            llm_text = await stream_into_placeholder(
-                placeholder,
-                model=model,
-                route=route_name(decision.intent),
-                messages=context_messages,
-                enable_web_search=decision.use_web_search,
-                display_prefix=display_prefix,
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                llm_result = await llm.chat(
+                    model=model,
+                    route=route_name(decision.intent),
+                    messages=context_messages,
+                    enable_web_search=decision.use_web_search,
+                )
+        except TimeoutError:
+            logger.warning("LLM request timed out after %ss", settings.request_timeout_seconds)
+            await message.answer(
+                "Запрос занял слишком много времени. Попробуйте ещё раз.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
             )
-        except Exception:  # noqa: BLE001
-            logger.exception("Streaming LLM request failed")
-            await placeholder.edit_text("Ошибка при обработке запроса. Попробуйте еще раз.")
             return
+        finally:
+            stop_typing.set()
+            await typing_task
 
-        if not llm_text:
-            await placeholder.edit_text("Пустой ответ от модели.")
-            return
+        llm_text = llm_result.text
+
+        # Build final display text
+        prefix_parts = [p for p in [badge_line, transcription_prefix] if p]
+        display_prefix = "\n\n".join(prefix_parts) + ("\n\n" if prefix_parts else "")
+        answer_text = _truncate(display_prefix + llm_text)
+
+        await message.answer(answer_text, reply_markup=MAIN_REPLY_KEYBOARD)
 
         # Save to DB: assistant text includes transcription prefix, not badge
         assistant_saved = f"{transcription_prefix}\n\n{llm_text}" if transcription_prefix else llm_text
@@ -493,27 +456,41 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         )
 
         badge_line = render_badge(decision, model) if not session.badge_sent else ""
-        display_prefix = (badge_line + "\n\n") if badge_line else ""
 
-        placeholder = await message.answer("…", reply_markup=MAIN_REPLY_KEYBOARD)
+        stop_typing = asyncio.Event()
+        typing_task = asyncio.create_task(
+            _keep_typing(message.bot, message.chat.id, stop_typing)
+        )
 
         try:
-            llm_text = await stream_into_placeholder(
-                placeholder,
-                model=model,
-                route=route_name(decision.intent),
-                messages=context_messages,
-                enable_web_search=False,
-                display_prefix=display_prefix,
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                llm_result = await llm.chat(
+                    model=model,
+                    route=route_name(decision.intent),
+                    messages=context_messages,
+                    enable_web_search=False,
+                )
+        except TimeoutError:
+            logger.warning("Vision LLM request timed out")
+            await message.answer(
+                "Запрос занял слишком много времени. Попробуйте ещё раз.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
             )
+            return
         except Exception:  # noqa: BLE001
-            logger.exception("Vision streaming request failed")
-            await placeholder.edit_text("Не удалось обработать изображение через модель.")
+            logger.exception("Vision request failed")
+            await message.answer(
+                "Не удалось обработать изображение через модель.",
+                reply_markup=MAIN_REPLY_KEYBOARD,
+            )
             return
+        finally:
+            stop_typing.set()
+            await typing_task
 
-        if not llm_text:
-            await placeholder.edit_text("Пустой ответ от модели.")
-            return
+        llm_text = llm_result.text
+        prefix = (badge_line + "\n\n") if badge_line else ""
+        await message.answer(_truncate(prefix + llm_text), reply_markup=MAIN_REPLY_KEYBOARD)
 
         await save_assistant_reply(
             session_id=session.id,

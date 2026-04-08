@@ -31,7 +31,12 @@ class Database:
         self._pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
-        self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=10)
+        self._pool = await asyncpg.create_pool(
+            self._dsn,
+            min_size=1,
+            max_size=10,
+            command_timeout=30,  # fail fast if a query hangs
+        )
 
     async def close(self) -> None:
         if self._pool:
