@@ -164,7 +164,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         display_prefix = "\n\n".join(prefix_parts) + ("\n\n" if prefix_parts else "")
 
         # Placeholder message — also attaches the reply keyboard
-        placeholder = await message.answer("⌛", reply_markup=MAIN_REPLY_KEYBOARD)
+        placeholder = await message.answer("…", reply_markup=MAIN_REPLY_KEYBOARD)
 
         try:
             llm_text = await stream_into_placeholder(
@@ -495,7 +495,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         badge_line = render_badge(decision, model) if not session.badge_sent else ""
         display_prefix = (badge_line + "\n\n") if badge_line else ""
 
-        placeholder = await message.answer("⌛", reply_markup=MAIN_REPLY_KEYBOARD)
+        placeholder = await message.answer("…", reply_markup=MAIN_REPLY_KEYBOARD)
 
         try:
             llm_text = await stream_into_placeholder(
