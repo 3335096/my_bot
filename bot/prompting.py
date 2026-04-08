@@ -70,5 +70,6 @@ def build_system_prompt(intent: Intent) -> str:
 
 
 def build_badge(intent: Intent, *, model: str, use_web_search: bool) -> str:
-    tools = "web" if use_web_search else "-"
-    return f"🧭 {route_name(intent)} | {model} | {tools}"
+    model_short = model.split("/")[-1]  # "openai/gpt-4o-mini" → "gpt-4o-mini"
+    web_part = " · 🌐" if use_web_search else ""
+    return f"🧭 {route_name(intent)} · {model_short}{web_part}"

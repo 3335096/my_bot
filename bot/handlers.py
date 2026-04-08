@@ -140,12 +140,17 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
         llm_text = llm_result.text
 
-        # Build final display text
-        prefix_parts = [p for p in [badge_line, transcription_prefix] if p]
-        display_prefix = "\n\n".join(prefix_parts) + ("\n\n" if prefix_parts else "")
+        # Badge: send as separate small italic message (not mixed into response)
+        if badge_line:
+            await message.answer(f"<i>{badge_line}</i>", parse_mode="HTML")
+
+        # Build final display text (transcription prefix only, no badge)
+        display_prefix = (transcription_prefix + "\n\n") if transcription_prefix else ""
         answer_text = _truncate(display_prefix + llm_text)
 
-        await message.answer(answer_text, reply_markup=MAIN_REPLY_KEYBOARD)
+        # Use Markdown for web search results so citation links are clickable
+        parse_mode = "Markdown" if llm_result.used_web_tool else None
+        await message.answer(answer_text, reply_markup=MAIN_REPLY_KEYBOARD, parse_mode=parse_mode)
 
         # Save to DB: assistant text includes transcription prefix, not badge
         assistant_saved = f"{transcription_prefix}\n\n{llm_text}" if transcription_prefix else llm_text
@@ -217,7 +222,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         session = await db.create_and_activate_session(user_id)
         await trim_user_lists(user_id)
         await message.answer(
-            f"Создан новый диалог #{session.id}.",
+            f"─────────────────\n🆕 Новый диалог #{session.id}\n─────────────────",
             reply_markup=MAIN_REPLY_KEYBOARD,
         )
 
@@ -517,8 +522,9 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             await typing_task
 
         llm_text = llm_result.text
-        prefix = (badge_line + "\n\n") if badge_line else ""
-        await message.answer(_truncate(prefix + llm_text), reply_markup=MAIN_REPLY_KEYBOARD)
+        if badge_line:
+            await message.answer(f"<i>{badge_line}</i>", parse_mode="HTML")
+        await message.answer(_truncate(llm_text), reply_markup=MAIN_REPLY_KEYBOARD)
 
         await save_assistant_reply(
             session_id=session.id,
