@@ -4,39 +4,57 @@ This document defines the task routing policy used by the bot.
 
 ## 1) Intent classes
 
-- `general`
-- `translation`
-- `coding`
-- `research`
-- `web`
-- `vision`
-- `audio`
+- `general` — общий диалог
+- `translation` — перевод
+- `coding` — программирование и технические вопросы
+- `research` — deep research (структурированный анализ)
+- `web` — актуальные данные из интернета
+- `vision` — анализ изображений
+- `audio` — транскрибация голоса
 
 ## 2) Input-level routing
 
-1. If message contains audio/voice -> `audio` (audio is transcribed first).
-2. If message contains photo/image -> `vision`.
-3. Otherwise route text with heuristic detection:
-   - translation keywords -> `translation`
-   - coding keywords -> `coding`
-   - research keywords -> `research` + web search enabled
-   - web keywords -> `web` + web search enabled
-   - fallback -> `general`
+1. If message contains audio/voice → `audio` (transcribed first, then text pipeline).
+2. If message contains photo/image → `vision`.
+3. If message contains document → text pipeline with extracted content.
+4. Otherwise route text with heuristic keyword detection:
+   - translation keywords → `translation`
+   - coding keywords → `coding`
+   - research keywords → `research` + web search enabled
+   - web keywords → `web` + web search enabled
+   - fallback → `general`
 
 ## 3) Model selection
 
-The model is selected by route using environment variables:
+Each intent maps to a **separate model** configured via environment variables.
+This allows switching providers and models without code changes.
 
-- `MODEL_GENERAL`
-- `MODEL_CODING`
-- `MODEL_TRANSLATION`
-- `MODEL_RESEARCH`
-- `MODEL_VISION`
-- `MODEL_AUDIO` (for transcription)
+| Intent | Env var | Default | Rationale |
+|--------|---------|---------|-----------|
+| `general` | `MODEL_GENERAL` | `google/gemini-2.0-flash` | Fast, cheap, multilingual |
+| `coding` | `MODEL_CODING` | `anthropic/claude-sonnet-4-5` | Strong reasoning and code generation |
+| `translation` | `MODEL_TRANSLATION` | `google/gemini-2.0-flash` | Fast, multilingual |
+| `research` | `MODEL_RESEARCH` | `anthropic/claude-sonnet-4-5` | Deep reasoning, large context |
+| `web` | `MODEL_WEB` | `google/gemini-2.0-flash` | Fast responses for fresh web data |
+| `vision` | `MODEL_VISION` | `openai/gpt-4o` | Strong vision capabilities |
+| `audio` (STT) | `MODEL_AUDIO` | `openai/gpt-4o-audio-preview` | input_audio API support |
 
-This allows switching providers/models without code changes.
+> After audio transcription the resulting text runs through the standard text pipeline
+> (intent re-detected from transcript, `model_general` or matching model applied).
 
-## 4) Tool selection
+## 4) System prompts
+
+Each intent has a dedicated system prompt tuned for its task:
+
+- `general` — concise helpful assistant, answers in user's language
+- `translation` — professional translator, preserves meaning and tone
+- `coding` — senior software engineer, production-safe guidance
+- `research` — structured answer: summary → findings → conclusions
+- `web` — web-grounded, cites sources explicitly
+- `vision` — describes image, extracts visible text, answers user's question
+- `audio` — same as general (voice input context)
+
+## 5) Tool selection
 
 When route requires fresh web data (`research` and `web`), request includes:
 
@@ -53,7 +71,7 @@ When route requires fresh web data (`research` and `web`), request includes:
 
 `max_results` is configured by `WEB_MAX_RESULTS`.
 
-## 5) Audio normalization and STT fallback
+## 6) Audio normalization and STT fallback
 
 For `audio` route the bot uses a resilient pipeline:
 
@@ -69,7 +87,16 @@ Audio limits are configured with:
 - `AUDIO_MAX_DURATION_SECONDS` (default 300)
 - `AUDIO_MAX_FILE_SIZE_MB` (default 20)
 
-## 6) OpenRouter retry/backoff policy
+## 7) Document support
+
+For documents (PDF, text files):
+
+1. Validate file size limit (`DOCUMENT_MAX_FILE_SIZE_MB`).
+2. Extract text (PDF via pypdf, text files via UTF-8 decode).
+3. Truncate to `DOCUMENT_MAX_EXTRACTED_CHARS` if needed.
+4. Route through text pipeline using caption as the user question.
+
+## 8) OpenRouter retry/backoff policy
 
 The OpenRouter client uses retry with exponential backoff for transient failures.
 
@@ -80,7 +107,10 @@ The OpenRouter client uses retry with exponential backoff for transient failures
   - `REQUEST_RETRY_BACKOFF_BASE_SECONDS` (default 1)
   - `REQUEST_RETRY_BACKOFF_MAX_SECONDS` (default 8)
 
-## 7) Routing badge UX
+> Streaming responses (`stream_chat`) do not retry mid-stream.
+> Retry applies only to initial connection failures.
+
+## 9) Routing badge UX
 
 Badge is shown only in the first assistant reply of a new session.
 
@@ -92,12 +122,13 @@ Format:
 
 Examples:
 
-- `🧭 coding | openai/gpt-4.1 | -`
-- `🧭 web | openai/gpt-4.1 | web`
+- `🧭 coding | anthropic/claude-sonnet-4-5 | -`
+- `🧭 web | google/gemini-2.0-flash | web`
+- `🧭 research | anthropic/claude-sonnet-4-5 | web`
 
 The bot stores `badge_sent` per session.
 
-## 8) Session list and storage rules
+## 10) Session list and storage rules
 
 - Recent list is exactly last 10 sessions (`RECENT_SESSIONS_LIMIT=10`).
 - Saved sessions list is limited (`SAVED_SESSIONS_LIMIT`, default 50).
@@ -105,4 +136,4 @@ The bot stores `badge_sent` per session.
   - recent: remove oldest non-saved sessions
   - saved: remove oldest saved sessions
 - Forced delete from inline button removes dialog immediately (session and messages).
-
+- Unsave button available in both recent and saved lists.

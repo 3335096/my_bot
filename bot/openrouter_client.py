@@ -1,8 +1,9 @@
 import asyncio
 import base64
 from dataclasses import dataclass
+import json
 import logging
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -147,6 +148,49 @@ class OpenRouterClient:
             route=route,
             used_web_tool=self._response_used_web_tool(response_json),
         )
+
+    async def stream_chat(
+        self,
+        model: str,
+        route: str,
+        messages: list[dict[str, Any]],
+        enable_web_search: bool,
+    ) -> AsyncGenerator[str, None]:
+        """Stream chat completions as text chunks via SSE."""
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+        }
+        if enable_web_search:
+            payload["tools"] = [
+                {
+                    "type": "openrouter:web_search",
+                    "parameters": {"max_results": settings.openrouter_max_web_results},
+                }
+            ]
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=self._headers(),
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk["choices"][0]["delta"].get("content") or ""
+                        if delta:
+                            yield delta
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
 
     async def transcribe_audio(self, audio_bytes: bytes, audio_format: str) -> str:
         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")

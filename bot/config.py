@@ -13,16 +13,13 @@ class Settings(BaseSettings):
 
     database_url: str = Field(alias="DATABASE_URL")
 
-    model_general: str = Field(default="openai/gpt-4o-mini", alias="MODEL_GENERAL")
-    model_coding: str = Field(default="openai/gpt-4.1", alias="MODEL_CODING")
-    model_translation: str = Field(
-        default="openai/gpt-4o-mini", alias="MODEL_TRANSLATION"
-    )
-    model_research: str = Field(default="openai/gpt-4.1", alias="MODEL_RESEARCH")
-    model_vision: str = Field(default="openai/gpt-4o-mini", alias="MODEL_VISION")
-    model_audio: str = Field(
-        default="openai/gpt-4o-audio-preview", alias="MODEL_AUDIO"
-    )
+    model_general: str = Field(default="google/gemini-2.0-flash", alias="MODEL_GENERAL")
+    model_coding: str = Field(default="anthropic/claude-sonnet-4-5", alias="MODEL_CODING")
+    model_translation: str = Field(default="google/gemini-2.0-flash", alias="MODEL_TRANSLATION")
+    model_research: str = Field(default="anthropic/claude-sonnet-4-5", alias="MODEL_RESEARCH")
+    model_web: str = Field(default="google/gemini-2.0-flash", alias="MODEL_WEB")
+    model_vision: str = Field(default="openai/gpt-4o", alias="MODEL_VISION")
+    model_audio: str = Field(default="openai/gpt-4o-audio-preview", alias="MODEL_AUDIO")
 
     recent_sessions_limit: int = Field(default=10, alias="RECENT_SESSIONS_LIMIT")
     saved_sessions_limit: int = Field(default=50, alias="SAVED_SESSIONS_LIMIT")
@@ -40,6 +37,9 @@ class Settings(BaseSettings):
 
     audio_max_duration_seconds: int = Field(default=300, alias="AUDIO_MAX_DURATION_SECONDS")
     audio_max_file_size_mb: int = Field(default=20, alias="AUDIO_MAX_FILE_SIZE_MB")
+
+    document_max_file_size_mb: int = Field(default=20, alias="DOCUMENT_MAX_FILE_SIZE_MB")
+    document_max_extracted_chars: int = Field(default=50000, alias="DOCUMENT_MAX_EXTRACTED_CHARS")
 
     openrouter_max_web_results: int = Field(default=5, alias="WEB_MAX_RESULTS")
 

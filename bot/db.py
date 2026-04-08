@@ -366,7 +366,7 @@ class Database:
         WITH active AS (
             SELECT active_session_id FROM users WHERE telegram_user_id = $1
         ),
-        WITH ranked AS (
+        ranked AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC) AS rn
             FROM sessions
             WHERE telegram_user_id = $1
@@ -392,7 +392,7 @@ class Database:
         WITH active AS (
             SELECT active_session_id FROM users WHERE telegram_user_id = $1
         ),
-        WITH ranked AS (
+        ranked AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC) AS rn
             FROM sessions
             WHERE telegram_user_id = $1

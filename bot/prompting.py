@@ -41,8 +41,10 @@ def model_for_intent(intent: Intent) -> str:
         return settings.model_coding
     if intent == Intent.TRANSLATION:
         return settings.model_translation
-    if intent in (Intent.RESEARCH, Intent.WEB):
+    if intent == Intent.RESEARCH:
         return settings.model_research
+    if intent == Intent.WEB:
+        return settings.model_web
     if intent == Intent.VISION:
         return settings.model_vision
     if intent == Intent.AUDIO:
