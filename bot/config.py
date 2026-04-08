@@ -13,11 +13,11 @@ class Settings(BaseSettings):
 
     database_url: str = Field(alias="DATABASE_URL")
 
-    model_general: str = Field(default="google/gemini-2.0-flash", alias="MODEL_GENERAL")
-    model_coding: str = Field(default="anthropic/claude-sonnet-4-5", alias="MODEL_CODING")
-    model_translation: str = Field(default="google/gemini-2.0-flash", alias="MODEL_TRANSLATION")
-    model_research: str = Field(default="anthropic/claude-sonnet-4-5", alias="MODEL_RESEARCH")
-    model_web: str = Field(default="google/gemini-2.0-flash", alias="MODEL_WEB")
+    model_general: str = Field(default="openai/gpt-4o-mini", alias="MODEL_GENERAL")
+    model_coding: str = Field(default="openai/gpt-4o", alias="MODEL_CODING")
+    model_translation: str = Field(default="openai/gpt-4o-mini", alias="MODEL_TRANSLATION")
+    model_research: str = Field(default="openai/gpt-4o", alias="MODEL_RESEARCH")
+    model_web: str = Field(default="openai/gpt-4o-mini", alias="MODEL_WEB")
     model_vision: str = Field(default="openai/gpt-4o", alias="MODEL_VISION")
     model_audio: str = Field(default="openai/gpt-4o-audio-preview", alias="MODEL_AUDIO")
 
