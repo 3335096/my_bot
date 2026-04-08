@@ -113,20 +113,27 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         llm_text = ""
         last_edit = 0.0
 
-        async for chunk in llm.stream_chat(
-            model=model,
-            route=route,
-            messages=messages,
-            enable_web_search=enable_web_search,
-        ):
-            llm_text += chunk
-            now = time.monotonic()
-            if now - last_edit >= _EDIT_INTERVAL:
-                try:
-                    await placeholder.edit_text(_truncate(display_prefix + llm_text))
-                    last_edit = now
-                except Exception:  # noqa: BLE001
-                    pass
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async for chunk in llm.stream_chat(
+                    model=model,
+                    route=route,
+                    messages=messages,
+                    enable_web_search=enable_web_search,
+                ):
+                    llm_text += chunk
+                    now = time.monotonic()
+                    if now - last_edit >= _EDIT_INTERVAL:
+                        try:
+                            await placeholder.edit_text(_truncate(display_prefix + llm_text))
+                            last_edit = now
+                        except Exception:  # noqa: BLE001
+                            pass
+        except TimeoutError:
+            logger.warning("LLM streaming timed out after %ss", settings.request_timeout_seconds)
+            if not llm_text:
+                raise RuntimeError("LLM response timed out")
+            # Partial response — show what arrived
 
         # Final edit to ensure complete text is shown
         try:
