@@ -312,7 +312,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
         await message.answer(text, reply_markup=MAIN_REPLY_KEYBOARD)
 
-    @router.message(F.text == "🤖 Модель")
+    @router.message(F.text == "🤖💰 Модель")
     async def model_cmd(message: Message) -> None:
         await message.answer(
             "Выберите модель для текущего диалога:",

@@ -6,8 +6,8 @@ from bot.router_logic import Intent
 # Models available for manual selection: (display_name, model_id or None for auto)
 SELECTABLE_MODELS: list[tuple[str, str | None]] = [
     ("🤖 Авто (smart routing)", None),
-    ("💰 GPT-5.4", "openai/gpt-5.4"),
-    ("💰 Gemini 3.1 Pro", "google/gemini-3.1-pro-preview"),
+    ("GPT-5.4", "openai/gpt-5.4"),
+    ("Gemini 3.1 Pro", "google/gemini-3.1-pro-preview"),
     ("Claude Sonnet 4.6", "anthropic/claude-sonnet-4.6"),
     ("🇨🇳 MiniMax M2.7", "minimax/minimax-m2.7"),
     ("🇨🇳 DeepSeek V3.2", "deepseek/deepseek-v3.2"),

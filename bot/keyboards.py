@@ -12,7 +12,7 @@ MAIN_REPLY_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🆕 Новый диалог"), KeyboardButton(text="🕘 Последние 10")],
         [KeyboardButton(text="⭐ Сохраненные"), KeyboardButton(text="💳 Баланс")],
-        [KeyboardButton(text="🤖 Модель")],
+        [KeyboardButton(text="🤖💰 Модель")],
     ],
     resize_keyboard=True,
 )
