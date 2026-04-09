@@ -54,7 +54,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
     # ------------------------------------------------------------------ helpers
 
-    async def ensure_user(message: Message) -> int:
+    async def ensure_user(message: Message) -> int | None:
         if message.from_user is None:
             raise RuntimeError("Message has no user context")
         user = message.from_user
@@ -64,7 +64,29 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             first_name=user.first_name,
             last_name=user.last_name,
         )
-        return user.id
+
+        # Parse whitelist (empty = open access for backwards compatibility)
+        allowed: set[str] = {
+            u.strip().lower().lstrip("@")
+            for u in settings.allowed_usernames.split(",")
+            if u.strip()
+        }
+        if not allowed:
+            return user.id  # no whitelist configured — open to everyone
+
+        # Already approved by a previous visit — fast path
+        if await db.is_user_approved(user.id):
+            return user.id
+
+        # First visit: check username against whitelist
+        username = (user.username or "").lower()
+        if username and username in allowed:
+            await db.approve_user(user.id)
+            return user.id
+
+        # Access denied
+        await message.answer("⛔ У вас нет доступа к этому боту.")
+        return None
 
     async def ensure_active_session(user_id: int) -> SessionRecord:
         return await db.ensure_active_session(user_id)
@@ -213,6 +235,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(Command("start"))
     async def start_cmd(message: Message) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         await ensure_active_session(user_id)
         await message.answer(
             "Бот готов к работе.\n"
@@ -234,6 +258,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(F.text == "🆕 Новый диалог")
     async def new_dialog(message: Message) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         session = await db.create_and_activate_session(user_id)
         await trim_user_lists(user_id)
         await message.answer(
@@ -246,12 +272,16 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(F.text == "🕘 Последние 10")
     async def history_dialogs(message: Message) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         await show_recent_dialogs(message, user_id)
 
     @router.message(Command("saved"))
     @router.message(F.text == "⭐ Сохраненные")
     async def saved_dialogs(message: Message) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         await show_saved_dialogs(message, user_id)
 
     @router.message(Command("balance"))
@@ -439,6 +469,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(F.voice | F.audio)
     async def voice_message(message: Message, bot: Bot) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         session = await ensure_active_session(user_id)
 
         audio = message.voice or message.audio
@@ -545,6 +577,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(F.photo)
     async def image_message(message: Message) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         session = await ensure_active_session(user_id)
 
         if not message.photo:
@@ -625,6 +659,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     @router.message(F.document)
     async def document_message(message: Message, bot: Bot) -> None:
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         session = await ensure_active_session(user_id)
 
         doc = message.document
@@ -693,6 +729,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             return
 
         user_id = await ensure_user(message)
+        if user_id is None:
+            return
         session = await ensure_active_session(user_id)
 
         try:

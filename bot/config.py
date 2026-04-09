@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     openrouter_max_web_results: int = Field(default=5, alias="WEB_MAX_RESULTS")
 
+    # Comma-separated Telegram usernames allowed to use the bot (without @).
+    # If empty — bot is open to everyone.
+    allowed_usernames: str = Field(default="", alias="ALLOWED_USERNAMES")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

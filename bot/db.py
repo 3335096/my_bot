@@ -58,6 +58,7 @@ class Database:
             first_name TEXT,
             last_name TEXT,
             active_session_id BIGINT,
+            is_approved BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -108,6 +109,9 @@ class Database:
             )
             await conn.execute(
                 "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS model_override TEXT;"
+            )
+            await conn.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT FALSE;"
             )
             # bot_messages table is created above via the main init_schema query
 
@@ -420,6 +424,21 @@ class Database:
         if active is not None:
             return active
         return await self.create_and_activate_session(telegram_user_id)
+
+    async def is_user_approved(self, telegram_user_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT is_approved FROM users WHERE telegram_user_id = $1;",
+                telegram_user_id,
+            )
+        return row is not None and row["is_approved"]
+
+    async def approve_user(self, telegram_user_id: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET is_approved = TRUE, updated_at = NOW() WHERE telegram_user_id = $1;",
+                telegram_user_id,
+            )
 
     async def save_bot_message(self, telegram_user_id: int, message_id: int) -> None:
         """Track a bot-sent message ID so it can be cleaned up later."""
