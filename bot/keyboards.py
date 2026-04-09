@@ -5,14 +5,25 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from bot.prompting import SELECTABLE_MODELS
+
 
 MAIN_REPLY_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🆕 Новый диалог"), KeyboardButton(text="🕘 Последние 10")],
         [KeyboardButton(text="⭐ Сохраненные"), KeyboardButton(text="💳 Баланс")],
+        [KeyboardButton(text="🤖 Модель")],
     ],
     resize_keyboard=True,
 )
+
+
+def model_select_keyboard() -> InlineKeyboardMarkup:
+    buttons = []
+    for display_name, model_id in SELECTABLE_MODELS:
+        callback = f"setmodel:{model_id}" if model_id else "setmodel:auto"
+        buttons.append([InlineKeyboardButton(text=display_name, callback_data=callback)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def recent_dialog_actions(session_id: int, saved: bool) -> InlineKeyboardMarkup:

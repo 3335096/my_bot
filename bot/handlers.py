@@ -16,9 +16,9 @@ from bot.audio_pipeline import build_audio_plan
 from bot.config import settings
 from bot.db import Database, SessionRecord
 from bot.document_pipeline import extract_document_text
-from bot.keyboards import MAIN_REPLY_KEYBOARD, recent_dialog_actions, saved_dialog_actions
+from bot.keyboards import MAIN_REPLY_KEYBOARD, model_select_keyboard, recent_dialog_actions, saved_dialog_actions
 from bot.openrouter_client import OpenRouterClient
-from bot.prompting import build_badge, build_system_prompt, model_for_intent, route_name
+from bot.prompting import SELECTABLE_MODELS, build_badge, build_system_prompt, model_for_intent, route_name
 from bot.router_logic import RouteDecision, detect_intent
 
 
@@ -78,8 +78,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             messages.append({"role": msg.role, "content": msg.content_text})
         return messages
 
-    def render_badge(decision: RouteDecision, model: str) -> str:
-        return build_badge(decision.intent, model=model, use_web_search=decision.use_web_search)
+    def render_badge(decision: RouteDecision, model: str, model_override: str | None = None) -> str:
+        return build_badge(decision.intent, model=model, use_web_search=decision.use_web_search, model_override=model_override)
 
     async def save_assistant_reply(
         *,
@@ -107,11 +107,11 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
     ) -> None:
         assert message.bot is not None
         decision = detect_intent(user_text, has_photo=False, has_audio=False)
-        model = model_for_intent(decision.intent)
+        model = session.model_override if session.model_override else model_for_intent(decision.intent)
         context_messages = await build_text_context(session.id, build_system_prompt(decision.intent))
         context_messages.append({"role": "user", "content": user_text})
 
-        badge_line = render_badge(decision, model) if not session.badge_sent else ""
+        badge_line = render_badge(decision, model, model_override=session.model_override) if not session.badge_sent else ""
 
         # Show typing while waiting for LLM
         stop_typing = asyncio.Event()
@@ -265,6 +265,36 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             text = "Не удалось получить баланс. Проверьте OPENROUTER_API_KEY."
 
         await message.answer(text, reply_markup=MAIN_REPLY_KEYBOARD)
+
+    @router.message(F.text == "🤖 Модель")
+    async def model_cmd(message: Message) -> None:
+        await message.answer(
+            "Выберите модель для текущего диалога:",
+            reply_markup=model_select_keyboard(),
+        )
+
+    @router.callback_query(F.data.startswith("setmodel:"))
+    async def set_model_callback(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.data is None:
+            return
+        user_id = callback.from_user.id
+        raw = callback.data.split(":", 1)[1]
+        model_id: str | None = None if raw == "auto" else raw
+
+        session = await db.ensure_active_session(user_id)
+        await db.set_model_override(session.id, model_id)
+
+        if model_id is None:
+            label = "🤖 Авто (smart routing)"
+        else:
+            label = next((name for name, mid in SELECTABLE_MODELS if mid == model_id), model_id)
+
+        await callback.answer("Модель сохранена.")
+        if callback.message:
+            await callback.message.edit_text(
+                f"<i>🔒 Модель: {label}</i>",
+                parse_mode="HTML",
+            )
 
     # -------------------------------------------------------- callback handlers
 
@@ -474,7 +504,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
         user_prompt = (message.caption or "").strip() or "Опиши изображение и выдели важные детали."
         decision = detect_intent(user_prompt, has_photo=True, has_audio=False)
-        model = model_for_intent(decision.intent)
+        model = session.model_override if session.model_override else model_for_intent(decision.intent)
 
         context_messages = await build_text_context(session.id, build_system_prompt(decision.intent))
         b64_img = base64.b64encode(image_bytes).decode("utf-8")
@@ -488,7 +518,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             }
         )
 
-        badge_line = render_badge(decision, model) if not session.badge_sent else ""
+        badge_line = render_badge(decision, model, model_override=session.model_override) if not session.badge_sent else ""
 
         stop_typing = asyncio.Event()
         typing_task = asyncio.create_task(

@@ -13,6 +13,7 @@ class SessionRecord:
     title: str
     is_saved: bool
     badge_sent: bool
+    model_override: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -95,6 +96,9 @@ class Database:
             await conn.execute(
                 "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS badge_sent BOOLEAN NOT NULL DEFAULT FALSE;"
             )
+            await conn.execute(
+                "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS model_override TEXT;"
+            )
 
     async def upsert_user(
         self,
@@ -125,7 +129,7 @@ class Database:
         query = """
         INSERT INTO sessions (telegram_user_id)
         VALUES ($1)
-        RETURNING id, telegram_user_id, title, is_saved, badge_sent, created_at, updated_at;
+        RETURNING id, telegram_user_id, title, is_saved, badge_sent, model_override, created_at, updated_at;
         """
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(query, telegram_user_id)
@@ -136,13 +140,14 @@ class Database:
             title=row["title"],
             is_saved=row["is_saved"],
             badge_sent=row["badge_sent"],
+            model_override=row["model_override"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
 
     async def get_session(self, telegram_user_id: int, session_id: int) -> SessionRecord | None:
         query = """
-        SELECT id, telegram_user_id, title, is_saved, badge_sent, created_at, updated_at
+        SELECT id, telegram_user_id, title, is_saved, badge_sent, model_override, created_at, updated_at
         FROM sessions
         WHERE id = $1 AND telegram_user_id = $2;
         """
@@ -156,13 +161,14 @@ class Database:
             title=row["title"],
             is_saved=row["is_saved"],
             badge_sent=row["badge_sent"],
+            model_override=row["model_override"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
 
     async def get_active_session(self, telegram_user_id: int) -> SessionRecord | None:
         query = """
-        SELECT s.id, s.telegram_user_id, s.title, s.is_saved, s.badge_sent, s.created_at, s.updated_at
+        SELECT s.id, s.telegram_user_id, s.title, s.is_saved, s.badge_sent, s.model_override, s.created_at, s.updated_at
         FROM users u
         JOIN sessions s ON s.id = u.active_session_id
         WHERE u.telegram_user_id = $1 AND s.telegram_user_id = $1;
@@ -177,6 +183,7 @@ class Database:
             title=row["title"],
             is_saved=row["is_saved"],
             badge_sent=row["badge_sent"],
+            model_override=row["model_override"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -197,7 +204,7 @@ class Database:
                     """
                     INSERT INTO sessions (telegram_user_id)
                     VALUES ($1)
-                    RETURNING id, telegram_user_id, title, is_saved, badge_sent, created_at, updated_at;
+                    RETURNING id, telegram_user_id, title, is_saved, badge_sent, model_override, created_at, updated_at;
                     """,
                     telegram_user_id,
                 )
@@ -217,6 +224,7 @@ class Database:
             title=row["title"],
             is_saved=row["is_saved"],
             badge_sent=row["badge_sent"],
+            model_override=row["model_override"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -317,7 +325,7 @@ class Database:
         limit: int,
     ) -> list[SessionRecord]:
         query = """
-        SELECT id, telegram_user_id, title, is_saved, badge_sent, created_at, updated_at
+        SELECT id, telegram_user_id, title, is_saved, badge_sent, model_override, created_at, updated_at
         FROM sessions
         WHERE telegram_user_id = $1
         ORDER BY updated_at DESC
@@ -332,6 +340,7 @@ class Database:
                 title=row["title"],
                 is_saved=row["is_saved"],
                 badge_sent=row["badge_sent"],
+                model_override=row["model_override"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
@@ -344,7 +353,7 @@ class Database:
         limit: int,
     ) -> list[SessionRecord]:
         query = """
-        SELECT id, telegram_user_id, title, is_saved, badge_sent, created_at, updated_at
+        SELECT id, telegram_user_id, title, is_saved, badge_sent, model_override, created_at, updated_at
         FROM sessions
         WHERE telegram_user_id = $1 AND is_saved = TRUE
         ORDER BY updated_at DESC
@@ -359,11 +368,20 @@ class Database:
                 title=row["title"],
                 is_saved=row["is_saved"],
                 badge_sent=row["badge_sent"],
+                model_override=row["model_override"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
             for row in rows
         ]
+
+    async def set_model_override(self, session_id: int, model_id: str | None) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE sessions SET model_override = $2, updated_at = NOW() WHERE id = $1;",
+                session_id,
+                model_id,
+            )
 
     async def trim_recent_sessions(self, telegram_user_id: int, keep: int) -> None:
         # We keep all saved sessions untouched and never auto-delete active dialog.

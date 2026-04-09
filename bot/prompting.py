@@ -3,6 +3,16 @@ from __future__ import annotations
 from bot.config import settings
 from bot.router_logic import Intent
 
+# Models available for manual selection: (display_name, model_id or None for auto)
+SELECTABLE_MODELS: list[tuple[str, str | None]] = [
+    ("🤖 Авто (smart routing)", None),
+    ("MiniMax M2.7", "minimax/minimax-m2.7"),
+    ("Claude Sonnet 4.6", "anthropic/claude-sonnet-4.6"),
+    ("DeepSeek V3.2", "deepseek/deepseek-v3.2"),
+    ("MiMo V2 Pro", "xiaomi/mimo-v2-pro"),
+    ("Qwen 3.5 Plus", "qwen/qwen3.5-plus-02-15"),
+]
+
 
 SYSTEM_PROMPTS: dict[Intent, str] = {
     Intent.GENERAL: (
@@ -69,7 +79,9 @@ def build_system_prompt(intent: Intent) -> str:
     return SYSTEM_PROMPTS[intent]
 
 
-def build_badge(intent: Intent, *, model: str, use_web_search: bool) -> str:
-    model_short = model.split("/")[-1]  # "openai/gpt-4o-mini" → "gpt-4o-mini"
+def build_badge(intent: Intent, *, model: str, use_web_search: bool, model_override: str | None = None) -> str:
+    model_short = model.split("/")[-1]
     web_part = " · 🌐" if use_web_search else ""
+    if model_override:
+        return f"🔒 {model_short}{web_part}"
     return f"🧭 {route_name(intent)} · {model_short}{web_part}"
