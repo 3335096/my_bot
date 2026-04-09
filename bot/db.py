@@ -86,6 +86,16 @@ class Database:
 
         CREATE INDEX IF NOT EXISTS idx_messages_session_created
         ON messages (session_id, created_at ASC);
+
+        CREATE TABLE IF NOT EXISTS bot_messages (
+            id BIGSERIAL PRIMARY KEY,
+            telegram_user_id BIGINT NOT NULL REFERENCES users(telegram_user_id) ON DELETE CASCADE,
+            message_id BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bot_messages_user
+        ON bot_messages (telegram_user_id);
         """
         async with self.pool.acquire() as conn:
             await conn.execute(query)
@@ -99,6 +109,7 @@ class Database:
             await conn.execute(
                 "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS model_override TEXT;"
             )
+            # bot_messages table is created above via the main init_schema query
 
     async def upsert_user(
         self,
@@ -409,6 +420,25 @@ class Database:
         if active is not None:
             return active
         return await self.create_and_activate_session(telegram_user_id)
+
+    async def save_bot_message(self, telegram_user_id: int, message_id: int) -> None:
+        """Track a bot-sent message ID so it can be cleaned up later."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO bot_messages (telegram_user_id, message_id) VALUES ($1, $2);",
+                telegram_user_id,
+                message_id,
+            )
+
+    async def pop_bot_messages(self, telegram_user_id: int) -> list[int]:
+        """Return all tracked bot message IDs for the user and delete them from the table."""
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    "DELETE FROM bot_messages WHERE telegram_user_id = $1 RETURNING message_id;",
+                    telegram_user_id,
+                )
+        return [row["message_id"] for row in rows]
 
     async def trim_saved_sessions(self, telegram_user_id: int, keep: int) -> None:
         query = """

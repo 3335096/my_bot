@@ -96,6 +96,12 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         await db.trim_recent_sessions(user_id, settings.recent_sessions_limit)
         await db.trim_saved_sessions(user_id, settings.saved_sessions_limit)
 
+    async def send_tracked(target: Message, user_id: int, text: str, **kwargs: Any) -> Message:
+        """Send a message and save its ID for later cleanup."""
+        sent = await target.answer(text, **kwargs)
+        await db.save_bot_message(user_id, sent.message_id)
+        return sent
+
     async def run_text_pipeline(
         *,
         message: Message,
@@ -172,12 +178,15 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             await message.answer("Пока нет диалогов.", reply_markup=MAIN_REPLY_KEYBOARD)
             return
 
-        await message.answer("🕘 Последние 10 диалогов:", reply_markup=MAIN_REPLY_KEYBOARD)
+        await send_tracked(message, user_id, "🕘 <b>Последние диалоги</b>", parse_mode="HTML", reply_markup=MAIN_REPLY_KEYBOARD)
         for session in sessions:
-            ts = session.updated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            text = f"#{session.id} · {ts}\n{session.title}"
-            await message.answer(
+            ts = session.updated_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+            text = f"<b>{session.title}</b>\n<i>#{session.id} · {ts}</i>"
+            await send_tracked(
+                message,
+                user_id,
                 text,
+                parse_mode="HTML",
                 reply_markup=recent_dialog_actions(session.id, saved=session.is_saved),
             )
 
@@ -187,11 +196,17 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
             await message.answer("Сохраненных диалогов пока нет.", reply_markup=MAIN_REPLY_KEYBOARD)
             return
 
-        await message.answer("⭐ Сохраненные диалоги:", reply_markup=MAIN_REPLY_KEYBOARD)
+        await send_tracked(message, user_id, "⭐ <b>Сохранённые диалоги</b>", parse_mode="HTML", reply_markup=MAIN_REPLY_KEYBOARD)
         for session in sessions:
-            ts = session.updated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            text = f"#{session.id} · {ts}\n{session.title}"
-            await message.answer(text, reply_markup=saved_dialog_actions(session.id))
+            ts = session.updated_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+            text = f"<b>{session.title}</b>\n<i>#{session.id} · {ts}</i>"
+            await send_tracked(
+                message,
+                user_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=saved_dialog_actions(session.id),
+            )
 
     # ---------------------------------------------------------- command handlers
 
@@ -222,7 +237,8 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         session = await db.create_and_activate_session(user_id)
         await trim_user_lists(user_id)
         await message.answer(
-            f"─────────────────\n🆕 Новый диалог #{session.id}\n─────────────────",
+            f"✨ <b>Новый диалог</b> <i>#{session.id}</i>",
+            parse_mode="HTML",
             reply_markup=MAIN_REPLY_KEYBOARD,
         )
 
@@ -300,7 +316,7 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
 
     @router.callback_query(F.data.startswith("open:"))
     async def open_session_callback(callback: CallbackQuery) -> None:
-        if callback.from_user is None or callback.data is None:
+        if callback.from_user is None or callback.data is None or callback.message is None:
             return
         user_id = callback.from_user.id
         try:
@@ -312,13 +328,53 @@ def build_router(db: Database, llm: OpenRouterClient) -> Router:
         if session is None:
             await callback.answer("Диалог не найден.", show_alert=True)
             return
+
         await db.set_active_session(user_id, session_id)
-        await callback.answer("Диалог активирован.")
-        if callback.message:
-            await callback.message.answer(
-                f"Подключен диалог #{session.id}: {session.title}",
-                reply_markup=MAIN_REPLY_KEYBOARD,
+        await callback.answer()
+
+        assert callback.message.bot is not None
+        bot = callback.message.bot
+        chat_id = callback.message.chat.id
+
+        # --- удаляем все отслеженные сообщения бота (список диалогов) ---
+        tracked_ids = await db.pop_bot_messages(user_id)
+        # также пробуем удалить само сообщение с кнопкой (на случай отсутствия в трекере)
+        all_to_delete = set(tracked_ids) | {callback.message.message_id}
+        for mid in all_to_delete:
+            try:
+                await bot.delete_message(chat_id, mid)
+            except Exception:  # noqa: BLE001
+                pass  # уже удалено или старше 48ч — игнорируем
+
+        # --- загружаем историю и показываем спойлером ---
+        history = await db.get_messages(session_id, limit=10)
+        icon = "⭐" if session.is_saved else "🕘"
+
+        if history:
+            parts: list[str] = []
+            for msg in history:
+                if msg.role == "user":
+                    snippet = msg.content_text[:300]
+                    if len(msg.content_text) > 300:
+                        snippet += "…"
+                    parts.append(f"👤 {snippet}")
+                elif msg.role == "assistant":
+                    snippet = msg.content_text[:500]
+                    if len(msg.content_text) > 500:
+                        snippet += "…"
+                    parts.append(f"🤖 {snippet}")
+
+            spoiler_body = "\n\n".join(parts)
+            count = len(history)
+            text = (
+                f"{icon} <b>{session.title}</b>\n\n"
+                f"<tg-spoiler>{spoiler_body}</tg-spoiler>\n\n"
+                f"<i>↑ последние {count} сообщ. · продолжайте диалог</i>"
             )
+        else:
+            text = f"{icon} <b>{session.title}</b>\n\n<i>История пуста · начните диалог</i>"
+
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=MAIN_REPLY_KEYBOARD)
 
     @router.callback_query(F.data.startswith("save:"))
     async def save_session_callback(callback: CallbackQuery) -> None:
