@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     database_url: str = Field(alias="DATABASE_URL")
 
-    model_general: str = Field(default="openai/gpt-4o-mini", alias="MODEL_GENERAL")
+    model_general: str = Field(default="deepseek/deepseek-v3.2", alias="MODEL_GENERAL")
     model_coding: str = Field(default="openai/gpt-4o", alias="MODEL_CODING")
     model_translation: str = Field(default="openai/gpt-4o-mini", alias="MODEL_TRANSLATION")
     model_research: str = Field(default="openai/gpt-4o", alias="MODEL_RESEARCH")
