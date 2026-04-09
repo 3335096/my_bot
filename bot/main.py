@@ -27,9 +27,12 @@ async def run() -> None:
     dp = Dispatcher()
     dp.include_router(build_router(db, llm))
 
+    # Remove any stale webhook and drop updates queued while bot was offline
+    await bot.delete_webhook(drop_pending_updates=True)
+
     logger.info("Starting bot polling")
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         logger.info("Stopping bot polling")
         await bot.session.close()
